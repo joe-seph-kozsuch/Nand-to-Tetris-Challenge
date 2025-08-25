@@ -1,0 +1,199 @@
+class hack_assembler:
+    _symbol_table = {
+        'SP': 0, 'LCL': 1, 'ARG': 2, 'THIS': 3, 'THAT': 4,
+        'R0': 0, 'R1': 1, 'R2': 2, 'R3': 3, 'R4': 4, 'R5': 5, 'R6': 6, 'R7': 7,
+        'R8': 8, 'R9': 9, 'R10': 10, 'R11': 11, 'R12': 12, 'R13': 13, 'R14': 14, 'R15': 15,
+        'SCREEN': 16384, 'KBD': 24576
+    }
+    
+    def __init__(self, file):
+        self.file = file
+        self.binary_instr_list = ''
+        
+    def interpret_file(self):
+        hack_instr_list = self._read_file()
+        hack_instr_list = self._remove_white_spaces_and_comments(hack_instr_list)
+        
+        # first pass looks for jump labels
+        self._first_pass(hack_instr_list)
+        print(self._symbol_table)
+        # second pass: looks for variables and replaces symbols with assigned addresses
+        hack_instr_list = self._second_pass(hack_instr_list)
+        
+        self.binary_instr_list = self._translate_instructions(hack_instr_list)
+        
+    def get_binary_instructions(self):
+        if self.binary_instr_list == '':
+            raise Exception(
+                "Hack instructions have not yet been interpretted. Please run save_binary_to_file method."
+            )
+        
+        return self.binary_instr_list
+        
+        
+    def save_binary_to_file(self, file_name):
+        if self.binary_instr_list == '':
+            raise Exception(
+                "Hack instructions have not yet been interpretted. Please run save_binary_to_file method."
+            )
+            
+        with open(file_name, 'w') as f:
+            for ind, line in enumerate(self.binary_instr_list):
+                f.write(line)
+                if ind < len(self.binary_instr_list) - 1:
+                    f.write('\n')
+            
+        
+    def _read_file(self):
+        """
+        reads file and returns list of strings, each string a line
+        """
+        a = open(self.file, 'r')
+        return a.readlines()
+    
+    def _remove_white_spaces_and_comments(self, hack_instr_list):
+        """
+        iterates through each string and removes empty strings (spaces)
+            and comments declared with "//"
+        """
+        new_hack_instr_list = []
+        
+        for line in hack_instr_list:
+            line_stripped = line.strip()
+            if line_stripped == '' or line_stripped[0] == '/' or line_stripped[0:2]=='\n':
+                continue
+                
+            new_hack_instr_list.append(
+                line_stripped.replace('\n','').split('\\')[0].strip() 
+            )
+            
+        return new_hack_instr_list
+            
+    
+    def _translate_instructions(self, hack_instr_list):
+        """
+        intakes instructions written in hack
+            and returns instruction written in binary
+        """
+        binary_instr_list = []
+        for instr in hack_instr_list:
+            if instr[0] == "@":
+                binary = self._translate_a_instruction(instr)
+            else:
+                binary = self._translate_c_instruction(instr)
+            binary_instr_list.append(binary)
+            
+        return binary_instr_list
+    
+    def _translate_a_instruction(self, a_instruction):
+        """
+        receives instructions in form of @integer
+            and returns 16-bit binary in form of 0{integer in binary}
+        """
+        number = int(a_instruction[1:])
+        binary = ''
+        
+        # the address is 15-bit, so 2**14 is highest magnitude
+        mag_2 = 14
+        
+        while mag_2 >= 0:
+            
+            next_digit = math.floor(number/2**mag_2)
+            if next_digit == 1:
+                number -= 2**mag_2
+            binary += str(next_digit)
+            
+            mag_2 -= 1
+        
+        return '0'+binary
+            
+    
+    def _translate_c_instruction(self, c_instruction):
+        """
+        intakes c_instruction in form of dest=comp;jump
+            and returns 16 bit binary with form 
+            111 a c1 c2 c3 c4 c5 c6 d1 d2 d3 j1 j2 j3
+        """
+        
+        # determine jump binary digits
+        if ';' in c_instruction:
+            bin_jump_instr = JUMP_HACK_TO_BINARY_DICT[
+                c_instruction.split(';')[1]
+            ]
+            
+            # remove jump code to help isolate computation
+            c_instruction = c_instruction.split(';')[0]
+            
+        else:
+            bin_jump_instr = '000'
+        
+        # determine destination binary digits
+        if '=' in c_instruction:
+            dest_hack = c_instruction.split('=')[0]
+            
+            bin_dest_instr = ''
+            
+            # A corresponds to first digit in dest, D second, M third
+            for dest in ['A','D','M']:
+                if dest in dest_hack:
+                    bin_dest_instr += '1'
+                else:
+                    bin_dest_instr += '0'
+                    
+            # remove dest code to help isolate computation
+            c_instruction = c_instruction.split('=')[1]
+            
+        else:
+            bin_dest_instr = '000'
+            
+        bin_comp_instr = COMP_HACK_TO_BINARY_DICT[c_instruction]
+        
+        return '111' + bin_comp_instr + bin_dest_instr + bin_jump_instr
+            
+        
+    
+    def _first_pass(self, hack_instr_list):
+        """
+        intakes lines free of white space and comments, and finds jump labels
+            and stores them in symbol table
+        """
+        # the jump labels will not be included in final binary
+        # so in incrementing the line numbers they must exclude them
+        line_num = 0
+        
+        for line in hack_instr_list:
+            if line[0]=='(':
+                self._symbol_table[
+                    line.replace('(','').replace(')','')
+                ] = line_num
+            else:
+                line_num+=1
+    
+    def _second_pass(self, hack_instr_list):
+        """
+        intakes lines free of white space and comments, and finds variables
+            and stores them in symbol table, while simultaneously
+            replacing symbols with their assigned values in the symbol_table
+        """
+        return_hack_instr_list = []
+        
+        # the first RAM cell available for variables is 16
+        # the subsequent variables receive subsequent RAM cells
+        ram_location = 16
+        
+        for line in hack_instr_list:
+            if line[0] == '@':
+                label = line[1:]
+                if label not in self._symbol_table.keys():
+                    self._symbol_table[label] = ram_location
+                    ram_location += 1
+                    
+                return_hack_instr_list.append(
+                    '@' + str(self._symbol_table[label])
+                )
+                
+            elif line[0] != '(':
+                return_hack_instr_list.append(line)
+                
+        return return_hack_instr_list
+                

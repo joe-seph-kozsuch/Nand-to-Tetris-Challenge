@@ -1,0 +1,133 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/5/CPU.hdl
+/**
+ * The Hack Central Processing unit (CPU).
+ * Parses the binary code in the instruction input and executes it according to the
+ * Hack machine language specification. In the case of a C-instruction, computes the
+ * function specified by the instruction. If the instruction specifies to read a memory
+ * value, the inM input is expected to contain this value. If the instruction specifies
+ * to write a value to the memory, sets the outM output to this value, sets the addressM
+ * output to the target address, and asserts the writeM output (when writeM = 0, any
+ * value may appear in outM).
+ * If the reset input is 0, computes the address of the next instruction and sets the
+ * pc output to that value. If the reset input is 1, sets pc to 0.
+ * Note: The outM and writeM outputs are combinational: they are affected by the
+ * instruction's execution during the current cycle. The addressM and pc outputs are
+ * clocked: although they are affected by the instruction's execution, they commit to
+ * their new values only in the next cycle.
+ */
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+        // write to memory
+        // can only occur from C command (instruction[0] = 1)
+        And(
+            a= instruction[15], 
+            b= instruction[3], 
+            out= writeM
+        );
+        // Mux to choose between M and A
+        // sent to ALU
+        Mux16(
+            a= regA, 
+            b= inM, 
+            sel= instruction[12], 
+            out= muxAorM
+        );
+
+        // ALU and control inputs
+
+        ALU(
+            x= regD, 
+            y= muxAorM, 
+            zx= instruction[11], 
+            nx= instruction[10], 
+            zy= instruction[9], 
+            ny= instruction[8], 
+            f= instruction[7], 
+            no= instruction[6], 
+            out= outMinterm, 
+            zr= aluZR, 
+            ng= aluNG
+        );
+
+        // Program counter and inputs
+        Or(a= aluNG, b= aluZR, out= aluLToZR);
+        Not(in= aluLToZR, out= aluPOS);
+        And(a= instruction[0], b= aluPOS, out= jumpMoreThan);
+        And(a= instruction[1], b= aluZR, out= jumpEqualZero);
+        And(a= instruction[2], b= aluNG, out= jumpLessThan);
+        Or(a= jumpLessThan, b= jumpMoreThan, out= intermOR);
+        Or(a= intermOR, b= jumpEqualZero, out= jumpBool);
+        And(a= jumpBool, b= instruction[15], out= load);
+        PC(
+            in= regA, 
+            load= load, 
+            inc= true, 
+            reset= reset, 
+            out[15]= dummvar,
+            out[0..14] = pc
+        );
+
+        // control inputs for A register
+        Not(in= instruction[15], out= isAcommand);
+        Mux16(
+            a= outMinterm, 
+            b= instruction, 
+            sel= isAcommand, 
+            out= muxARegister
+        );
+        // instruction 10 determines if C command writes to A
+        Or(
+            a= isAcommand, 
+            b= instruction[5], 
+            out= loadA
+        );
+        // A register includes full sixteen bits 
+        // (first will be dummy 0)
+        ARegister(
+            in= muxARegister, 
+            load= loadA, 
+            out= regA
+        );
+        // trim down A Register values to 15 bits
+        // for address sent to RAM
+        And16(
+            a= regA, 
+            b= regA, 
+            out[15]= dummy, 
+            out[0..14]= addressM
+        );
+
+        // D register and control input
+        And(
+            a= instruction[15], 
+            b= instruction[4], 
+            out= loadD
+        );
+        DRegister(in= outMinterm, load= loadD, out= regD);
+
+        // need to feedback output
+        // but Hack can't reference output pin as input
+        Mux16(
+            a= outMinterm, 
+            b= outMinterm, 
+            sel= true, 
+            out= outM
+        );
+
+        
+}

@@ -1,0 +1,182 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/2/ALU.hdl
+/**
+ * ALU (Arithmetic Logic Unit):
+ * Computes out = one of the following functions:
+ *                0, 1, -1,
+ *                x, y, !x, !y, -x, -y,
+ *                x + 1, y + 1, x - 1, y - 1,
+ *                x + y, x - y, y - x,
+ *                x & y, x | y
+ * on the 16-bit inputs x, y,
+ * according to the input bits zx, nx, zy, ny, f, no.
+ * In addition, computes the two output bits:
+ * if (out == 0) zr = 1, else zr = 0
+ * if (out < 0)  ng = 1, else ng = 0
+ */
+// Implementation: Manipulates the x and y inputs
+// and operates on the resulting values, as follows:
+// if (zx == 1) sets x = 0        // 16-bit constant
+// if (nx == 1) sets x = !x       // bitwise not
+// if (zy == 1) sets y = 0        // 16-bit constant
+// if (ny == 1) sets y = !y       // bitwise not
+// if (f == 1)  sets out = x + y  // integer 2's complement addition
+// if (f == 0)  sets out = x & y  // bitwise and
+// if (no == 1) sets out = !out   // bitwise not
+
+CHIP ALU {
+    IN  
+        x[16], y[16],  // 16-bit inputs        
+        zx, // zero the x input?
+        nx, // negate the x input?
+        zy, // zero the y input?
+        ny, // negate the y input?
+        f,  // compute (out = x + y) or (out = x & y)?
+        no; // negate the out output?
+    OUT 
+        out[16], // 16-bit output
+        zr,      // if (out == 0) equals 1, else 0
+        ng;      // if (out < 0)  equals 1, else 0
+
+    PARTS:
+        Not(in= zx, out= invZX);
+        And16(
+            a[0]= invZX, a[1]= invZX, a[2]= invZX, 
+            a[3]= invZX, a[4]= invZX, a[5]= invZX, 
+            a[6]= invZX, a[7]= invZX, a[8]= invZX, 
+            a[9]= invZX, a[10]= invZX, a[11]= invZX, 
+            a[12]= invZX, a[13]= invZX, a[14]= invZX, 
+            a[15]= invZX, 
+            b[0..15]= x, out= zeroX
+        );
+        Or16(
+            a[0]= nx, a[1]= nx, a[2]= nx, 
+            a[3]= nx, a[4]= nx, a[5]= nx, 
+            a[6]= nx, a[7]= nx, a[8]= nx, 
+            a[9]= nx, a[10]= nx, a[11]= nx, 
+            a[12]= nx, a[13]= nx, a[14]= nx, 
+            a[15]= nx, 
+            b[0..15]= zeroX, out= negOrX
+        );
+        And16(
+            a[0]= nx, a[1]= nx, a[2]= nx, 
+            a[3]= nx, a[4]= nx, a[5]= nx, 
+            a[6]= nx, a[7]= nx, a[8]= nx, 
+            a[9]= nx, a[10]= nx, a[11]= nx, 
+            a[12]= nx, a[13]= nx, a[14]= nx, 
+            a[15]= nx, 
+            b[0..15]= zeroX, out= negAndX
+        );
+        Not16(in= negAndX, out= negNandX);
+        And16(a= negOrX, b = negNandX, out = negX);
+
+        Not(in= zy, out= invZY);
+        And16(
+            a[0]= invZY, a[1]= invZY, a[2]= invZY, 
+            a[3]= invZY, a[4]= invZY, a[5]= invZY, 
+            a[6]= invZY, a[7]= invZY, a[8]= invZY, 
+            a[9]= invZY, a[10]= invZY, a[11]= invZY, 
+            a[12]= invZY, a[13]= invZY, a[14]= invZY, 
+            a[15]= invZY, 
+            b[0..15]= y, out= zeroY
+        );
+        Or16(
+            a[0]= ny, a[1]= ny, a[2]= ny, 
+            a[3]= ny, a[4]= ny, a[5]= ny, 
+            a[6]= ny, a[7]= ny, a[8]= ny, 
+            a[9]= ny, a[10]= ny, a[11]= ny, 
+            a[12]= ny, a[13]= ny, a[14]= ny, 
+            a[15]= ny, 
+            b[0..15]= zeroY, out= negOrY
+        );
+        And16(
+            a[0]= ny, a[1]= ny, a[2]= ny, 
+            a[3]= ny, a[4]= ny, a[5]= ny, 
+            a[6]= ny, a[7]= ny, a[8]= ny, 
+            a[9]= ny, a[10]= ny, a[11]= ny, 
+            a[12]= ny, a[13]= ny, a[14]= ny, 
+            a[15]= ny, 
+            b[0..15]= zeroY, out= negAndY
+        );
+        Not16(in= negAndY, out= negNandY);
+        And16(a= negOrY, b = negNandY, out = negY);
+        // perform both AND and add
+        Add16(a = negX, b = negY, out = xPy);
+        And16(a= negX, b= negY, out= xAy);
+
+        // choose which one to output
+        And16(
+            a[0]= f, a[1]= f, a[2]= f, 
+            a[3]= f, a[4]= f, a[5]= f, 
+            a[6]= f, a[7]= f, a[8]= f, 
+            a[9]= f, a[10]= f, a[11]= f, 
+            a[12]= f, a[13]= f, a[14]= f, 
+            a[15]= f, 
+            b[0..15]= xPy, out= outAdd
+        );
+        Not(in= f, out= invF);
+        And16(
+            a[0]= invF, a[1]= invF, a[2]= invF, 
+            a[3]= invF, a[4]= invF, a[5]= invF, 
+            a[6]= invF, a[7]= invF, a[8]= invF, 
+            a[9]= invF, a[10]= invF, a[11]= invF, 
+            a[12]= invF, a[13]= invF, a[14]= invF, 
+            a[15]= invF, 
+            b[0..15]= xAy, out= outAnd
+        );
+        Or16(a= outAdd, b= outAnd, out= outFromF);
+
+        // Negate t/f   
+        Or16(
+            a[0]= no, a[1]= no, a[2]= no, 
+            a[3]= no, a[4]= no, a[5]= no, 
+            a[6]= no, a[7]= no, a[8]= no, 
+            a[9]= no, a[10]= no, a[11]= no, 
+            a[12]= no, a[13]= no, a[14]= no, 
+            a[15]= no, 
+            b[0..15]= outFromF, out= negOr
+        );
+        And16(
+            a[0]= no, a[1]= no, a[2]= no, 
+            a[3]= no, a[4]= no, a[5]= no, 
+            a[6]= no, a[7]= no, a[8]= no, 
+            a[9]= no, a[10]= no, a[11]= no, 
+            a[12]= no, a[13]= no, a[14]= no, 
+            a[15]= no, 
+            b[0..15]= outFromF, out= negAnd
+        );
+        Not16(in= negAnd, out= negNand);
+        And16(a= negOr, b = negNand, out = outAlmost);
+        // check for negative
+        And16(a= outAlmost, b= outAlmost, out[0..14]= dummy, out[15]=ng);
+        //check for zero
+        And16(a= outAlmost, b= outAlmost, 
+            out[0]= and0,out[1]= and1,out[2]= and2,
+            out[3]= and3,out[4]= and4,out[5]= and5,
+            out[6]= and6, out[7]= and7,out[8]= and8,
+            out[9]= and9,out[10]= and10,out[11]= and11,
+            out[12]= and12,out[13]= and13,out[14]= and14,
+            out[15]= and15
+        );
+        Or(a= and0, b= and1, out= zo0);
+        Or(a= and2, b= zo0, out= zo1);
+        Or(a= and3, b= zo1, out= zo2);
+        Or(a= and4, b= zo2, out= zo3);
+        Or(a= and5, b= zo3, out= zo4);
+        Or(a= and6, b= zo4, out= zo5);
+        Or(a= and7, b= zo5, out= zo6);
+        Or(a= and8, b= zo6, out= zo7);
+        Or(a= and9, b= zo7, out= zo8);
+        Or(a= and10, b= zo8, out= zo9);
+        Or(a= and11, b= zo9, out= zo10);
+        Or(a= and12, b= zo10, out= zo11);
+        Or(a= and13, b= zo11, out= zo12);
+        Or(a= and14, b= zo12, out= zo13);
+        Or(a= and15, b= zo13, out= outOR);
+        Not(in= outOR, out= zr);
+
+        And16(a= outAlmost, b= outAlmost, out= out);
+
+}
